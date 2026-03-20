@@ -1,0 +1,890 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Novo — Zendesk Migration Audit</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --card: #1a1d27;
+    --card-hover: #222632;
+    --border: #2a2e3a;
+    --accent: #6c63ff;
+    --accent2: #00d4aa;
+    --warn: #ff6b6b;
+    --yellow: #ffd93d;
+    --blue: #4ea8de;
+    --text: #e4e4e7;
+    --muted: #8b8fa3;
+    --tag-api: #6c63ff22;
+    --tag-api-border: #6c63ff;
+    --tag-internal: #00d4aa22;
+    --tag-internal-border: #00d4aa;
+    --tag-sdk: #ff6b6b22;
+    --tag-sdk-border: #ff6b6b;
+    --tag-config: #ffd93d22;
+    --tag-config-border: #ffd93d;
+    --tag-db: #4ea8de22;
+    --tag-db-border: #4ea8de;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; line-height:1.6; }
+  .container { max-width:1300px; margin:0 auto; padding:40px 24px; }
+
+  /* Header */
+  .header { text-align:center; margin-bottom:60px; }
+  .header h1 { font-size:2.8rem; font-weight:800; background:linear-gradient(135deg,#6c63ff,#00d4aa); -webkit-background-clip:text; -webkit-text-fill-color:transparent; margin-bottom:8px; }
+  .header .subtitle { color:var(--muted); font-size:1.1rem; }
+  .header .date { color:var(--muted); font-size:0.85rem; margin-top:4px; }
+
+  /* Stats bar */
+  .stats-bar { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:16px; margin-bottom:50px; }
+  .stat-card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:24px; text-align:center; }
+  .stat-card .num { font-size:2.4rem; font-weight:800; }
+  .stat-card .label { color:var(--muted); font-size:0.85rem; text-transform:uppercase; letter-spacing:1px; margin-top:4px; }
+  .stat-card.purple .num { color:var(--accent); }
+  .stat-card.green .num { color:var(--accent2); }
+  .stat-card.red .num { color:var(--warn); }
+  .stat-card.yellow .num { color:var(--yellow); }
+  .stat-card.blue .num { color:var(--blue); }
+
+  /* Section headers */
+  .section-title { font-size:1.6rem; font-weight:700; margin:50px 0 8px; display:flex; align-items:center; gap:12px; }
+  .section-title .icon { width:36px; height:36px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:1.1rem; flex-shrink:0; }
+  .section-desc { color:var(--muted); margin-bottom:24px; font-size:0.95rem; }
+
+  /* Legend */
+  .legend { display:flex; flex-wrap:wrap; gap:12px; margin-bottom:32px; padding:16px 20px; background:var(--card); border:1px solid var(--border); border-radius:12px; }
+  .legend-item { display:flex; align-items:center; gap:6px; font-size:0.82rem; color:var(--muted); }
+  .legend-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+
+  /* Tags */
+  .tag { display:inline-flex; align-items:center; padding:3px 10px; border-radius:6px; font-size:0.72rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; white-space:nowrap; }
+  .tag-api { background:var(--tag-api); color:var(--tag-api-border); border:1px solid var(--tag-api-border); }
+  .tag-internal { background:var(--tag-internal); color:var(--tag-internal-border); border:1px solid var(--tag-internal-border); }
+  .tag-sdk { background:var(--tag-sdk); color:var(--tag-sdk-border); border:1px solid var(--tag-sdk-border); }
+  .tag-config { background:var(--tag-config); color:var(--tag-config-border); border:1px solid var(--tag-config-border); }
+  .tag-db { background:var(--tag-db); color:var(--tag-db-border); border:1px solid var(--tag-db-border); }
+
+  /* Architecture diagram */
+  .arch-diagram { background:var(--card); border:1px solid var(--border); border-radius:16px; padding:40px 32px; margin-bottom:40px; overflow-x:auto; }
+  .arch-diagram pre { font-family:'JetBrains Mono','Fira Code',monospace; font-size:0.78rem; line-height:1.7; color:var(--text); white-space:pre; }
+  .arch-diagram .title { font-size:1rem; font-weight:700; margin-bottom:16px; color:var(--accent); }
+
+  /* Repo cards */
+  .repo-grid { display:grid; gap:20px; }
+  .repo-card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:28px; transition:border-color 0.2s; }
+  .repo-card:hover { border-color:var(--accent); }
+  .repo-card .repo-header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:16px; }
+  .repo-card .repo-name { font-size:1.15rem; font-weight:700; }
+  .repo-card .repo-tags { display:flex; flex-wrap:wrap; gap:6px; }
+  .repo-card .repo-desc { color:var(--muted); font-size:0.9rem; margin-bottom:16px; }
+
+  .func-list { list-style:none; }
+  .func-list li { padding:10px 14px; border-left:3px solid var(--border); margin-bottom:8px; background:rgba(255,255,255,0.02); border-radius:0 8px 8px 0; font-size:0.88rem; }
+  .func-list li strong { color:var(--text); }
+  .func-list li .file { color:var(--muted); font-size:0.78rem; font-family:monospace; display:block; margin-top:2px; }
+  .func-list li.api-call { border-left-color:var(--accent); }
+  .func-list li.internal { border-left-color:var(--accent2); }
+  .func-list li.sdk { border-left-color:var(--warn); }
+  .func-list li.config { border-left-color:var(--yellow); }
+  .func-list li.db { border-left-color:var(--blue); }
+
+  /* Impact matrix */
+  .matrix-table { width:100%; border-collapse:collapse; background:var(--card); border-radius:14px; overflow:hidden; border:1px solid var(--border); margin-bottom:40px; }
+  .matrix-table th { background:#22263a; padding:14px 16px; text-align:left; font-size:0.8rem; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted); border-bottom:1px solid var(--border); }
+  .matrix-table td { padding:12px 16px; border-bottom:1px solid var(--border); font-size:0.88rem; vertical-align:top; }
+  .matrix-table tr:last-child td { border-bottom:none; }
+  .matrix-table tr:hover td { background:var(--card-hover); }
+  .dot { width:20px; height:20px; border-radius:50%; display:inline-block; }
+  .dot-high { background:var(--warn); }
+  .dot-med { background:var(--yellow); }
+  .dot-low { background:var(--accent2); }
+  .dot-none { background:var(--border); }
+
+  /* Zendesk API table */
+  .api-table { width:100%; border-collapse:collapse; background:var(--card); border-radius:14px; overflow:hidden; border:1px solid var(--border); margin-bottom:40px; }
+  .api-table th { background:#22263a; padding:12px 16px; text-align:left; font-size:0.78rem; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted); border-bottom:1px solid var(--border); }
+  .api-table td { padding:10px 16px; border-bottom:1px solid var(--border); font-size:0.85rem; font-family:monospace; }
+  .api-table tr:last-child td { border-bottom:none; }
+  .api-table tr:hover td { background:var(--card-hover); }
+  .api-table .method { font-weight:700; }
+  .api-table .get { color:var(--accent2); }
+  .api-table .post { color:var(--accent); }
+  .api-table .put { color:var(--yellow); }
+  .api-table .delete { color:var(--warn); }
+
+  /* Two-column split */
+  .split { display:grid; grid-template-columns:1fr 1fr; gap:24px; margin-bottom:40px; }
+  @media(max-width:800px) { .split { grid-template-columns:1fr; } }
+  .split-card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:28px; }
+  .split-card h3 { font-size:1.05rem; font-weight:700; margin-bottom:16px; display:flex; align-items:center; gap:8px; }
+  .split-card ul { list-style:none; }
+  .split-card ul li { padding:8px 0; border-bottom:1px solid var(--border); font-size:0.88rem; display:flex; align-items:flex-start; gap:8px; }
+  .split-card ul li:last-child { border-bottom:none; }
+  .split-card ul li::before { content:''; width:6px; height:6px; border-radius:50%; flex-shrink:0; margin-top:8px; }
+  .replace-list li::before { background:var(--accent) !important; }
+  .update-list li::before { background:var(--accent2) !important; }
+
+  /* Checklist */
+  .checklist { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:28px; margin-bottom:40px; }
+  .checklist h3 { font-size:1.1rem; font-weight:700; margin-bottom:16px; }
+  .check-item { display:flex; align-items:flex-start; gap:10px; padding:10px 0; border-bottom:1px solid var(--border); }
+  .check-item:last-child { border-bottom:none; }
+  .check-box { width:20px; height:20px; border:2px solid var(--border); border-radius:5px; flex-shrink:0; margin-top:2px; }
+  .check-item .check-text { font-size:0.9rem; }
+  .check-item .check-sub { font-size:0.8rem; color:var(--muted); }
+
+  /* Footer */
+  .footer { text-align:center; padding:40px 0 20px; color:var(--muted); font-size:0.8rem; border-top:1px solid var(--border); margin-top:60px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- HEADER -->
+<div class="header">
+  <h1>Zendesk Migration Audit</h1>
+  <div class="subtitle">Complete inventory of Zendesk dependencies across all Novo repositories</div>
+  <div class="date">Generated March 20, 2026</div>
+</div>
+
+<!-- STATS -->
+<div class="stats-bar">
+  <div class="stat-card purple"><div class="num">30</div><div class="label">Total Repos Scanned</div></div>
+  <div class="stat-card red"><div class="num">18</div><div class="label">Repos With Zendesk</div></div>
+  <div class="stat-card yellow"><div class="num">6</div><div class="label">Zendesk API Products</div></div>
+  <div class="stat-card green"><div class="num">~35</div><div class="label">Distinct API Endpoints</div></div>
+  <div class="stat-card blue"><div class="num">8</div><div class="label">DB Tables Affected</div></div>
+</div>
+
+<!-- LEGEND -->
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:var(--accent)"></div> Zendesk REST API</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--warn)"></div> Zendesk SDK (Mobile/Web Widget)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--accent2)"></div> Internal Business Logic</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--yellow)"></div> Configuration / Secrets</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--blue)"></div> Database / Data Model</div>
+</div>
+
+<!-- ARCHITECTURE DIAGRAM -->
+<div class="arch-diagram">
+  <div class="title">System Architecture — How Zendesk Connects to Novo</div>
+<pre>
+  MOBILE CLIENTS                     WEB CLIENTS                        INTERNAL TOOLS
+ ┌─────────────────┐              ┌─────────────────┐               ┌──────────────────┐
+ │  novo-android    │              │  novo-webapps    │               │  novo-tools      │
+ │  iOS             │              │                  │               │  (Admin Dashboard)│
+ │                  │              │  Feature Flags:  │               │                  │
+ │ Zendesk SDK:     │              │  zendesk_live_   │               │  Links to ZD     │
+ │  - Support 5.4   │              │  chat, chat_bot, │               │  tickets for     │
+ │  - AnswerBot 3.3 │              │  web_ticketing   │               │  disputes        │
+ │  - Messaging 2.31│              │                  │               │                  │
+ └────────┬─────────┘              └────────┬─────────┘               └────────┬─────────┘
+          │                                 │                                  │
+          │ JWT Auth                        │ GraphQL                          │ GraphQL
+          ▼                                 ▼                                  ▼
+ ┌──────────────────────────────────────────────────────────────────────────────────────┐
+ │                              NOVO BACKEND SERVICES                                   │
+ │                                                                                      │
+ │  ┌──────────────┐  ┌──────────────────┐  ┌──────────────┐  ┌─────────────────────┐  │
+ │  │ novo-mobile-  │  │ authentication   │  │ Admin API    │  │ Onboarding Admin    │  │
+ │  │ api           │  │                  │  │              │  │ API                 │  │
+ │  │               │  │ Token endpoint   │  │ User CRUD    │  │                     │  │
+ │  │ Tickets CRUD  │  │ for ZD widget    │  │ Tag mgmt     │  │ App-to-ZD user      │  │
+ │  │ Attachments   │  │                  │  │ Feature flags│  │ mapping             │  │
+ │  │ JWT tokens    │  │                  │  │ Disputes     │  │                     │  │
+ │  └──────┬────────┘  └──────┬──────────┘  └──────┬───────┘  └──────┬──────────────┘  │
+ │         │                  │                     │                  │                 │
+ │  ┌──────────────┐  ┌──────────────────┐  ┌──────────────┐  ┌─────────────────────┐  │
+ │  │ onboarding-  │  │ customer-voice-  │  │ card-mgmt-   │  │ credit-card-        │  │
+ │  │ core         │  │ service          │  │ service      │  │ service             │  │
+ │  │              │  │                  │  │              │  │                     │  │
+ │  │ CC tags:     │  │ Ticket lifecycle │  │ Dispute      │  │ Dispute tickets     │  │
+ │  │ invited/     │  │ CSAT surveys     │  │ tickets      │  │ Tag updates         │  │
+ │  │ approved/    │  │ Push notifs      │  │              │  │ (cc_apr/cc_dnd)     │  │
+ │  │ denied       │  │                  │  │              │  │                     │  │
+ │  └──────┬───────┘  └──────┬──────────┘  └──────┬───────┘  └──────┬──────────────┘  │
+ │         │                  │                     │                  │                 │
+ │  ┌──────────────┐  ┌──────────────────┐  ┌──────────────┐  ┌─────────────────────┐  │
+ │  │ AMS          │  │ novo-chatbot-    │  │ novo-invoic- │  │ Call Forwarding     │  │
+ │  │              │  │ service          │  │ ing-service  │  │                     │  │
+ │  │ Tag mgmt     │  │                  │  │              │  │ Apple Pay ticket    │  │
+ │  │ Health check │  │ Help Center FAQ  │  │ Invoice      │  │ creation            │  │
+ │  │              │  │ Article embeddings│  │ dispute tix  │  │                     │  │
+ │  │              │  │ Ticket queries   │  │              │  │                     │  │
+ │  └──────┬───────┘  └──────┬──────────┘  └──────┬───────┘  └──────┬──────────────┘  │
+ │         │                  │                     │                  │                 │
+ │  ┌──────────────┐  ┌──────────────────┐  ┌──────────────┐                            │
+ │  │ incoming-    │  │ novo-slack-jira  │  │ novo-mailer  │                            │
+ │  │ webhooks     │  │ -app             │  │              │                            │
+ │  │              │  │                  │  │ Email notifs │                            │
+ │  │ ZD webhook   │  │ Slack → ZD tix   │  │ for ticket   │                            │
+ │  │ receiver     │  │ File uploads     │  │ events       │                            │
+ │  └──────┬───────┘  └──────┬──────────┘  └──────┬───────┘                            │
+ │         │                  │                     │                                    │
+ └─────────┼──────────────────┼─────────────────────┼────────────────────────────────────┘
+           │                  │                     │
+           ▼                  ▼                     ▼
+ ┌──────────────────────────────────────────────────────────────────────────────────────┐
+ │                           ZENDESK PLATFORM (novo.zendesk.com)                        │
+ │                                                                                      │
+ │  ┌────────────┐  ┌────────────┐  ┌───────────┐  ┌───────────┐  ┌────────────────┐  │
+ │  │  Support   │  │  Messaging │  │ Answer    │  │   Help    │  │   Webhooks     │  │
+ │  │  Tickets   │  │  SDK       │  │ Bot       │  │   Center  │  │   (outbound)   │  │
+ │  │  API v2    │  │            │  │           │  │   API     │  │                │  │
+ │  └────────────┘  └────────────┘  └───────────┘  └───────────┘  └────────────────┘  │
+ │                                                                                      │
+ │  ┌─────────────────────────┐     ┌──────────────────────────────────────────────┐    │
+ │  │  zendesk-widget         │     │  ZD Agent Dashboard (used by support team)   │    │
+ │  │  (Ticket Sidebar App)   │     │                                              │    │
+ │  │  Shows Novo customer    │     │                                              │    │
+ │  │  data in agent view     │     │                                              │    │
+ │  └─────────────────────────┘     └──────────────────────────────────────────────┘    │
+ └──────────────────────────────────────────────────────────────────────────────────────┘
+</pre>
+</div>
+
+<!-- ============================== -->
+<!-- SECTION 1: ZENDESK API REPLACE -->
+<!-- ============================== -->
+<div class="section-title">
+  <div class="icon" style="background:var(--tag-api);">&#9889;</div>
+  Part 1 — Zendesk API/SDK to Replace with New CRM
+</div>
+<div class="section-desc">These are direct Zendesk product dependencies. The new CRM tool must provide equivalent capabilities.</div>
+
+<!-- Zendesk Products Used -->
+<div class="split">
+  <div class="split-card">
+    <h3 style="color:var(--accent)">Zendesk Products In Use</h3>
+    <ul class="replace-list">
+      <li><strong>Support (Tickets API v2)</strong> — Ticket CRUD, comments, attachments, tags, custom fields, incremental exports</li>
+      <li><strong>Users API v2</strong> — User creation, search, tag management, external ID mapping</li>
+      <li><strong>Help Center API</strong> — Article fetching, section/category traversal, FAQ content for chatbot embeddings</li>
+      <li><strong>Messaging SDK</strong> — In-app chat on iOS (ZendeskSDKMessaging) and Android (v2.31.0)</li>
+      <li><strong>Support SDK</strong> — Native ticket views on iOS and Android (v5.4.0)</li>
+      <li><strong>AnswerBot SDK</strong> — AI-powered article suggestions in mobile apps (v3.3.0)</li>
+      <li><strong>Webhooks (Outbound)</strong> — Ticket lifecycle events pushed to incoming-webhooks service</li>
+      <li><strong>Apps Framework (ZAF) v2</strong> — Custom sidebar widget in agent dashboard</li>
+    </ul>
+  </div>
+  <div class="split-card">
+    <h3 style="color:var(--warn)">New CRM Must Support</h3>
+    <ul class="replace-list">
+      <li><strong>Ticket/Case Management API</strong> — Create, read, update tickets; add comments; manage attachments</li>
+      <li><strong>Contact/User API</strong> — Create users, search, tag/label management, external ID sync</li>
+      <li><strong>Knowledge Base API</strong> — Fetch articles programmatically for chatbot RAG pipeline</li>
+      <li><strong>Mobile Chat/Messaging SDK</strong> — iOS + Android native SDK with JWT auth and push notifications</li>
+      <li><strong>Native Ticket UI SDK</strong> — In-app ticket list, detail, and creation views</li>
+      <li><strong>AI/Bot SDK</strong> — Article suggestion engine in mobile apps</li>
+      <li><strong>Outbound Webhooks</strong> — Event triggers for ticket creation, status changes, replies</li>
+      <li><strong>Agent Sidebar / App Framework</strong> — Custom iframe widget showing customer data in agent view</li>
+      <li><strong>Incremental Export API</strong> — Cursor-based bulk ticket retrieval for sync</li>
+      <li><strong>CSAT Survey Support</strong> — Post-resolution satisfaction ratings</li>
+    </ul>
+  </div>
+</div>
+
+<!-- All Zendesk API Endpoints Used -->
+<div class="section-title" style="font-size:1.2rem;">All Zendesk REST API Endpoints Currently in Use</div>
+<table class="api-table">
+  <thead><tr><th>Method</th><th>Endpoint</th><th>Used In</th><th>Purpose</th></tr></thead>
+  <tbody>
+    <tr><td class="method post">POST</td><td>/api/v2/tickets</td><td>novo-mobile-api, Call Forwarding, novo-slack-jira-app, card-mgmt, credit-card-svc, novo-invoicing</td><td>Create support tickets</td></tr>
+    <tr><td class="method put">PUT</td><td>/api/v2/tickets/{id}</td><td>credit-card-service</td><td>Update ticket status/fields</td></tr>
+    <tr><td class="method get">GET</td><td>/api/v2/tickets/{id}.json</td><td>novo-chatbot-service</td><td>Fetch single ticket</td></tr>
+    <tr><td class="method get">GET</td><td>/api/v2/tickets/{id}/comments</td><td>novo-mobile-api, novo-chatbot-service</td><td>Get ticket comments</td></tr>
+    <tr><td class="method get">GET</td><td>/api/v2/incremental/tickets/cursor.json</td><td>novo-chatbot-service</td><td>Incremental ticket export</td></tr>
+    <tr><td class="method post">POST</td><td>/api/v2/uploads.json</td><td>novo-mobile-api, novo-slack-jira-app</td><td>Upload file attachments</td></tr>
+    <tr><td class="method post">POST</td><td>/api/v2/users/create_or_update</td><td>Admin API, novo-mobile-api</td><td>Create/update Zendesk users</td></tr>
+    <tr><td class="method get">GET</td><td>/api/v2/users/{id}.json</td><td>Admin API, novo-chatbot-service</td><td>Get user details</td></tr>
+    <tr><td class="method get">GET</td><td>/api/v2/users/search.json</td><td>novo-chatbot-service</td><td>Search users by email/name</td></tr>
+    <tr><td class="method get">GET</td><td>/api/v2/users/{id}/tickets/requested</td><td>novo-chatbot-service</td><td>Get user's tickets</td></tr>
+    <tr><td class="method put">PUT</td><td>/api/v2/users/{id}/tags.json</td><td>Admin API, AMS, onboarding-core</td><td>Add/update user tags</td></tr>
+    <tr><td class="method delete">DELETE</td><td>/api/v2/users/{id}/tags.json</td><td>Admin API</td><td>Remove user tags</td></tr>
+    <tr><td class="method get">GET</td><td>/api/v2/help_center/articles.json</td><td>novo-chatbot-service (n8n)</td><td>Fetch KB articles for embeddings</td></tr>
+    <tr><td class="method get">GET</td><td>/api/v2/help_center/en-us/articles/{id}.json</td><td>novo-chatbot-service (n8n)</td><td>Fetch specific article content</td></tr>
+    <tr><td class="method get">GET</td><td>/api/v2/help_center/sections/{id}</td><td>novo-chatbot-service</td><td>Get section details</td></tr>
+    <tr><td class="method get">GET</td><td>/api/v2/help_center/sections/{id}/articles</td><td>novo-chatbot-service</td><td>Get articles in section</td></tr>
+    <tr><td class="method get">GET</td><td>/api/v2/help_center/categories/{id}/sections</td><td>novo-chatbot-service</td><td>Get sections in category</td></tr>
+  </tbody>
+</table>
+
+<!-- Mobile SDK Comparison -->
+<div class="section-title" style="font-size:1.2rem;">Mobile SDK Replacement Matrix</div>
+<table class="matrix-table">
+  <thead><tr><th>Zendesk SDK</th><th>Version</th><th>Platform</th><th>Used For</th><th>Repos</th></tr></thead>
+  <tbody>
+    <tr><td>Support SDK</td><td>5.4.0</td><td>Android + iOS</td><td>Ticket list, ticket detail, ticket creation views</td><td>novo-android, iOS</td></tr>
+    <tr><td>AnswerBot SDK</td><td>3.3.0</td><td>Android + iOS</td><td>AI-powered article suggestions in help center</td><td>novo-android, iOS</td></tr>
+    <tr><td>Messaging SDK</td><td>2.31.0</td><td>Android + iOS</td><td>In-app chat, push notifications, JWT auth</td><td>novo-android, iOS</td></tr>
+    <tr><td>ZAF SDK</td><td>2.0</td><td>Web (iframe)</td><td>Agent sidebar widget in Zendesk dashboard</td><td>zendesk-widget</td></tr>
+  </tbody>
+</table>
+
+
+<!-- ===================================== -->
+<!-- SECTION 2: INTERNAL CHANGES REQUIRED  -->
+<!-- ===================================== -->
+<div class="section-title">
+  <div class="icon" style="background:var(--tag-internal);">&#9881;</div>
+  Part 2 — Internal Novo Code Changes Required
+</div>
+<div class="section-desc">These are Novo's own services, databases, and business logic that reference Zendesk and must be updated.</div>
+
+<!-- Impact Matrix -->
+<div class="section-title" style="font-size:1.2rem;">Repository Impact Matrix</div>
+<table class="matrix-table">
+  <thead><tr><th>Repository</th><th>Impact</th><th>Type of Change</th><th>Zendesk Functionality</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>novo-mobile-api</strong></td>
+      <td><span class="dot dot-high"></span></td>
+      <td><span class="tag tag-api">API</span> <span class="tag tag-db">DB</span> <span class="tag tag-internal">Logic</span></td>
+      <td>Full ticket CRUD, attachment uploads, JWT token generation, push notifications, user creation. Central backend for mobile Zendesk features.</td>
+    </tr>
+    <tr>
+      <td><strong>novo-android</strong></td>
+      <td><span class="dot dot-high"></span></td>
+      <td><span class="tag tag-sdk">SDK</span> <span class="tag tag-config">Config</span></td>
+      <td>Zendesk Support/Messaging/AnswerBot SDKs on Android + iOS (KMP). Help center, ticket views, chat, push notifications, JWT auth. ~30 files affected.</td>
+    </tr>
+    <tr>
+      <td><strong>iOS</strong></td>
+      <td><span class="dot dot-high"></span></td>
+      <td><span class="tag tag-sdk">SDK</span> <span class="tag tag-config">Config</span></td>
+      <td>Legacy iOS app with same Zendesk SDK integration (Support, Messaging, AnswerBot). Help center, ticket views, FAQ, article display.</td>
+    </tr>
+    <tr>
+      <td><strong>Admin API</strong></td>
+      <td><span class="dot dot-high"></span></td>
+      <td><span class="tag tag-api">API</span> <span class="tag tag-db">DB</span> <span class="tag tag-internal">Logic</span></td>
+      <td>Zendesk user creation on account open, tag lifecycle (opened/closed/frozen), feature flags, GraphQL queries, transaction dispute links, zendesk_users table.</td>
+    </tr>
+    <tr>
+      <td><strong>customer-voice-service</strong></td>
+      <td><span class="dot dot-high"></span></td>
+      <td><span class="tag tag-internal">Logic</span> <span class="tag tag-db">DB</span></td>
+      <td>Ticket lifecycle event processing (Kafka consumers), CSAT survey engine, push/email notifications, support_tickets table, analytics tracking.</td>
+    </tr>
+    <tr>
+      <td><strong>novo-chatbot-service</strong></td>
+      <td><span class="dot dot-high"></span></td>
+      <td><span class="tag tag-api">API</span> <span class="tag tag-internal">Logic</span></td>
+      <td>Full Zendesk library (Help Center + Tickets + Users). Article embeddings pipeline (n8n). GraphQL admin queries. Knowledge base sync.</td>
+    </tr>
+    <tr>
+      <td><strong>zendesk-widget</strong></td>
+      <td><span class="dot dot-high"></span></td>
+      <td><span class="tag tag-sdk">SDK</span> <span class="tag tag-api">API</span></td>
+      <td>Entire app is a Zendesk sidebar widget (ZAF 2.0). Shows customer data in agent ticket view. 1,555-line AngularJS app. Full rewrite needed.</td>
+    </tr>
+    <tr>
+      <td><strong>onboarding-core</strong></td>
+      <td><span class="dot dot-med"></span></td>
+      <td><span class="tag tag-api">API</span> <span class="tag tag-db">DB</span></td>
+      <td>Credit card lifecycle tags (cc_invited, cc_apr, cc_dnd). RabbitMQ async workers. zendesk_users entity. Rate limit handling.</td>
+    </tr>
+    <tr>
+      <td><strong>credit-card-service</strong></td>
+      <td><span class="dot dot-med"></span></td>
+      <td><span class="tag tag-api">API</span> <span class="tag tag-db">DB</span></td>
+      <td>Dispute ticket creation/updates, tag management, zendesk_ticket_id in disputes table, zendesk_users entity.</td>
+    </tr>
+    <tr>
+      <td><strong>card-management-service</strong></td>
+      <td><span class="dot dot-med"></span></td>
+      <td><span class="tag tag-api">API</span> <span class="tag tag-db">DB</span></td>
+      <td>Debit card dispute ticket creation, admin communication within tickets, zendesk_users entity.</td>
+    </tr>
+    <tr>
+      <td><strong>AMS</strong></td>
+      <td><span class="dot dot-med"></span></td>
+      <td><span class="tag tag-api">API</span> <span class="tag tag-db">DB</span></td>
+      <td>User tag add/remove, Zendesk health checks (status.zendesk.com), zendesk_users entity.</td>
+    </tr>
+    <tr>
+      <td><strong>incoming-webhooks</strong></td>
+      <td><span class="dot dot-med"></span></td>
+      <td><span class="tag tag-internal">Logic</span> <span class="tag tag-config">Config</span></td>
+      <td>Webhook receiver for Zendesk events (HMAC-SHA256 validation). Routes: new ticket, reply, notification, lifecycle.</td>
+    </tr>
+    <tr>
+      <td><strong>novo-slack-jira-app</strong></td>
+      <td><span class="dot dot-med"></span></td>
+      <td><span class="tag tag-api">API</span></td>
+      <td>Creates Zendesk tickets from Slack messages with file attachments. HTML-formatted ticket bodies.</td>
+    </tr>
+    <tr>
+      <td><strong>Call Forwarding</strong></td>
+      <td><span class="dot dot-low"></span></td>
+      <td><span class="tag tag-api">API</span></td>
+      <td>Apple Pay activation ticket creation via IVR flow. Single use case.</td>
+    </tr>
+    <tr>
+      <td><strong>novo-invoicing-service</strong></td>
+      <td><span class="dot dot-low"></span></td>
+      <td><span class="tag tag-api">API</span> <span class="tag tag-db">DB</span></td>
+      <td>Invoice dispute ticket creation. zendesk_ticket_id column in disputes table.</td>
+    </tr>
+    <tr>
+      <td><strong>authentication</strong></td>
+      <td><span class="dot dot-low"></span></td>
+      <td><span class="tag tag-api">API</span> <span class="tag tag-db">DB</span></td>
+      <td>Zendesk user/tag management, token endpoint for widget. zendesk_users model.</td>
+    </tr>
+    <tr>
+      <td><strong>novo-webapps</strong></td>
+      <td><span class="dot dot-low"></span></td>
+      <td><span class="tag tag-config">Config</span> <span class="tag tag-internal">Logic</span></td>
+      <td>Help center URLs, feature flags UI, GraphQL queries for tickets. Frontend only — follows API changes.</td>
+    </tr>
+    <tr>
+      <td><strong>novo-mailer</strong></td>
+      <td><span class="dot dot-low"></span></td>
+      <td><span class="tag tag-internal">Logic</span></td>
+      <td>Email templates for ticket events (new ticket, agent reply). GraphQL mutations.</td>
+    </tr>
+    <tr>
+      <td><strong>novo-tools</strong></td>
+      <td><span class="dot dot-low"></span></td>
+      <td><span class="tag tag-config">Config</span></td>
+      <td>Admin dashboard links to Zendesk tickets, feature flag toggles. URL changes only.</td>
+    </tr>
+    <tr>
+      <td><strong>Onboarding Admin API</strong></td>
+      <td><span class="dot dot-low"></span></td>
+      <td><span class="tag tag-db">DB</span></td>
+      <td>zendesk_users table, application-to-zendesk mapping query.</td>
+    </tr>
+    <tr>
+      <td><strong>onboarding</strong></td>
+      <td><span class="dot dot-low"></span></td>
+      <td><span class="tag tag-db">DB</span></td>
+      <td>zendesk_users table (same schema as Onboarding Admin API).</td>
+    </tr>
+    <tr>
+      <td><strong>debit-card-service</strong></td>
+      <td><span class="dot dot-low"></span></td>
+      <td><span class="tag tag-db">DB</span></td>
+      <td>zendesk_users entity for user lookups.</td>
+    </tr>
+    <tr>
+      <td><strong>identity</strong></td>
+      <td><span class="dot dot-low"></span></td>
+      <td><span class="tag tag-config">Config</span></td>
+      <td>Zendesk config references in environment files.</td>
+    </tr>
+    <tr>
+      <td><strong>Novo_Web_UI_automation</strong></td>
+      <td><span class="dot dot-low"></span></td>
+      <td><span class="tag tag-internal">Logic</span></td>
+      <td>QA test objects referencing Zendesk pages. Update test selectors.</td>
+    </tr>
+  </tbody>
+</table>
+
+<div style="display:flex;gap:16px;margin-bottom:40px;flex-wrap:wrap;">
+  <div style="display:flex;align-items:center;gap:6px;font-size:0.85rem;color:var(--muted)"><span class="dot dot-high" style="width:14px;height:14px"></span> High Impact (full rewrite/major changes)</div>
+  <div style="display:flex;align-items:center;gap:6px;font-size:0.85rem;color:var(--muted)"><span class="dot dot-med" style="width:14px;height:14px"></span> Medium Impact (service updates + DB migration)</div>
+  <div style="display:flex;align-items:center;gap:6px;font-size:0.85rem;color:var(--muted)"><span class="dot dot-low" style="width:14px;height:14px"></span> Low Impact (config/URL changes, minor code)</div>
+</div>
+
+<!-- ===================================== -->
+<!-- SECTION 3: DETAILED REPO BREAKDOWNS   -->
+<!-- ===================================== -->
+<div class="section-title">
+  <div class="icon" style="background:var(--tag-db);">&#128269;</div>
+  Part 3 — Detailed Breakdown Per Repository
+</div>
+<div class="section-desc">Expand each repository to see exact files, functions, and Zendesk touchpoints.</div>
+
+<div class="repo-grid">
+
+<!-- novo-mobile-api -->
+<div class="repo-card">
+  <div class="repo-header">
+    <span class="repo-name">novo-mobile-api</span>
+    <div class="repo-tags"><span class="tag tag-api">API</span><span class="tag tag-db">DB</span><span class="tag tag-internal">Logic</span></div>
+  </div>
+  <div class="repo-desc">Central backend for all mobile Zendesk features. Heaviest integration.</div>
+  <ul class="func-list">
+    <li class="api-call"><strong>Ticket CRUD</strong> — getAllZendeskTickets(), getAllTicketComments(), createZendeskTicket(), addTicketComments()<span class="file">api/src/controllers/zendesk.js</span></li>
+    <li class="api-call"><strong>File Uploads</strong> — uploadZendeskAttachment() for disputes, business docs, personal info, beneficial owner docs<span class="file">workers/consumers/upload-attachment-zendesk/</span></li>
+    <li class="api-call"><strong>JWT Token Generation</strong> — GetZendeskMessagingAuthToken() for Messaging SDK authentication<span class="file">api/src/graph-api/mutations/zendesk/</span></li>
+    <li class="api-call"><strong>User Creation</strong> — Creates Zendesk users from user profiles<span class="file">api/src/common/libs/zendesk/index.js</span></li>
+    <li class="internal"><strong>Push Notifications</strong> — sendZendeskTicketNotification(), sendTicketSolvedNotification()<span class="file">workers/helpers/push-notifications/zendesk.js</span></li>
+    <li class="db"><strong>Database</strong> — zendesk_users model (user_id, business_id, zendesk_id, meta)<span class="file">api/models/zendesk_users.js</span></li>
+  </ul>
+</div>
+
+<!-- novo-android -->
+<div class="repo-card">
+  <div class="repo-header">
+    <span class="repo-name">novo-android (KMP — Android + iOS)</span>
+    <div class="repo-tags"><span class="tag tag-sdk">SDK</span><span class="tag tag-config">Config</span></div>
+  </div>
+  <div class="repo-desc">Cross-platform mobile app with deep Zendesk SDK integration on both platforms.</div>
+  <ul class="func-list">
+    <li class="sdk"><strong>Android SDK Init</strong> — Zendesk.INSTANCE.init(), Messaging.initialize() with JWT identity + push notifications<span class="file">CMPAppDevelop/src/androidMain/.../ZendeskHelper.android.kt</span></li>
+    <li class="sdk"><strong>iOS SDK Init</strong> — ZendeskSupport.initConfiguration() with Messaging + Support + AnswerBot<span class="file">iosApp/iosApp/Zendesk/Zendesk.swift</span></li>
+    <li class="sdk"><strong>Help Center</strong> — openZendeskHelpCenter() with predefined section IDs (ACH, disputes, fraud, integrations)<span class="file">CMPAppDevelop/src/commonMain/.../ZendeskHelper.kt</span></li>
+    <li class="sdk"><strong>Ticket Views</strong> — openZendeskMessageHistory() (list), openZendeskMessageTicket() (detail)<span class="file">CMPAppDevelop/src/commonMain/.../SupportScreen.kt</span></li>
+    <li class="sdk"><strong>Chat / FAQ</strong> — openZendeskChat(), openFAQ() with AnswerBot + Support engines<span class="file">CMPAppDevelop/src/commonMain/.../SupportScreen.kt</span></li>
+    <li class="config"><strong>Custom Fields</strong> — OS version (360028633352), device model (360028633372), app version (360027629872)<span class="file">ZendeskHelper.android.kt, Zendesk.swift</span></li>
+    <li class="config"><strong>Remote Config</strong> — GraphQL QueryZendeskAndAnalyticsConfig fetches app_id, client_id, url, channel_key<span class="file">GraphQLFiles/.../query_zendesk_and_analytics_config.graphql</span></li>
+    <li class="config"><strong>13 Android Activities</strong> registered in AndroidManifest.xml for Zendesk UI screens<span class="file">CMPAppDevelop/src/androidMain/AndroidManifest.xml</span></li>
+  </ul>
+</div>
+
+<!-- iOS (legacy) -->
+<div class="repo-card">
+  <div class="repo-header">
+    <span class="repo-name">iOS (Legacy)</span>
+    <div class="repo-tags"><span class="tag tag-sdk">SDK</span></div>
+  </div>
+  <div class="repo-desc">Legacy iOS app — same Zendesk SDK pattern as novo-android's iOS target.</div>
+  <ul class="func-list">
+    <li class="sdk"><strong>SDK Setup</strong> — Zendesk Support + Messaging + AnswerBot initialization with JWT<span class="file">Novo/Common/OtherClasses/Zendesk.swift</span></li>
+    <li class="sdk"><strong>UI Components</strong> — Help center, FAQ, article viewer, ticket list/detail, ticket creation, chat<span class="file">Novo/Common/OtherClasses/Zendesk.swift</span></li>
+  </ul>
+</div>
+
+<!-- Admin API -->
+<div class="repo-card">
+  <div class="repo-header">
+    <span class="repo-name">Admin API</span>
+    <div class="repo-tags"><span class="tag tag-api">API</span><span class="tag tag-db">DB</span><span class="tag tag-internal">Logic</span></div>
+  </div>
+  <div class="repo-desc">User lifecycle management — creates Zendesk users and manages tags through account lifecycle.</div>
+  <ul class="func-list">
+    <li class="api-call"><strong>User Creation</strong> — zendesk.users.createOrUpdate() on account opening with name, email, phone, external ID<span class="file">api/controllers/accounts/add-user.js</span></li>
+    <li class="api-call"><strong>Tag Management</strong> — addTagsToZenDeskUser(), removeTagsFromZenDeskUser(), appendTagsToZendeskUser()<span class="file">api/common/libs/zendesk/index.js</span></li>
+    <li class="internal"><strong>Account Lifecycle Tags</strong> — OPENED_ACCOUNT / CLOSED_ACCOUNT / FROZEN_ACCOUNT / PAYROLL_ADMIN<span class="file">api/controllers/close-account-requests/helper.js, accounts/update-status.js</span></li>
+    <li class="internal"><strong>Feature Flags</strong> — zendesk_live_chat, web_zendesk_ticketing, zendesk_chat_bot, zendesk_chat_bot_mobile<span class="file">api/graph-api/schemas/users/feature-flags.js</span></li>
+    <li class="internal"><strong>Dispute Links</strong> — Builds Zendesk ticket URLs for transaction disputes<span class="file">api/controllers/txn-dispute/get-txn-disputes.js</span></li>
+    <li class="db"><strong>Database</strong> — zendesk_users table (id, user_id, business_id, zendesk_id, meta JSONB) + migrations<span class="file">api/models/zendesk_users.js</span></li>
+    <li class="db"><strong>GraphQL</strong> — get_zendesk_user query returns zendeskId, role, tags<span class="file">api/graph-api/queries/zendesk-user/</span></li>
+  </ul>
+</div>
+
+<!-- customer-voice-service -->
+<div class="repo-card">
+  <div class="repo-header">
+    <span class="repo-name">customer-voice-service</span>
+    <div class="repo-tags"><span class="tag tag-internal">Logic</span><span class="tag tag-db">DB</span><span class="tag tag-config">Config</span></div>
+  </div>
+  <div class="repo-desc">Processes Zendesk ticket lifecycle events and manages CSAT surveys.</div>
+  <ul class="func-list">
+    <li class="internal"><strong>Ticket Create Consumer</strong> — Processes new ticket events via Kafka, maps Zendesk user to Novo user, stores ticket data<span class="file">apps/workers/src/consumers/support/support-ticket-lifecycle/support-ticket-create.consumer.ts</span></li>
+    <li class="internal"><strong>Ticket Update Consumer</strong> — Handles solved/opened/closed/reopened events, triggers CSAT surveys<span class="file">apps/workers/src/consumers/support/support-ticket-lifecycle/support-ticket-update.consumer.ts</span></li>
+    <li class="internal"><strong>CSAT Survey Engine</strong> — Offers surveys on ticket solve, captures ratings, sends push + email notifications<span class="file">apps/api/src/modules/customer/support-tickets/support-tickets.service.ts</span></li>
+    <li class="internal"><strong>Open API (Public)</strong> — External endpoints for email-based survey responses with encrypted tokens<span class="file">apps/api/src/modules/open/open-api.service.ts</span></li>
+    <li class="db"><strong>Database</strong> — support_tickets table (ticket_id, vendor='zendesk', vendor_user_id, status, survey_status, satisfaction)<span class="file">database/entities/support-tickets.entity.ts</span></li>
+    <li class="config"><strong>Config</strong> — URL, Email, Token, APIVersion, EncryptionToken from AWS Parameter Store<span class="file">apps/*/src/configs/param-store/blueprint.json</span></li>
+  </ul>
+</div>
+
+<!-- novo-chatbot-service -->
+<div class="repo-card">
+  <div class="repo-header">
+    <span class="repo-name">novo-chatbot-service</span>
+    <div class="repo-tags"><span class="tag tag-api">API</span><span class="tag tag-internal">Logic</span></div>
+  </div>
+  <div class="repo-desc">Most comprehensive Zendesk library — Help Center + Tickets + Users. Powers chatbot RAG pipeline.</div>
+  <ul class="func-list">
+    <li class="api-call"><strong>Help Center API</strong> — getArticles(), getNestedArticlesForUrl(), category/section hierarchy traversal with caching<span class="file">libs/zendesk/src/zendesk.service.ts</span></li>
+    <li class="api-call"><strong>Ticket API</strong> — getTicket(), getTicketComments(), getIncrementalTickets() with cursor pagination<span class="file">libs/zendesk/src/zendesk.service.ts</span></li>
+    <li class="api-call"><strong>User API</strong> — searchUsers(), getUser(), getUserTickets()<span class="file">libs/zendesk/src/zendesk.service.ts</span></li>
+    <li class="api-call"><strong>Attachments</strong> — downloadAttachment() with size limits (10MB default)<span class="file">libs/zendesk/src/zendesk.service.ts</span></li>
+    <li class="internal"><strong>N8N Embeddings Pipeline</strong> — Fetches articles -> strips HTML -> chunks (3000 chars) -> generates embeddings via Gemini<span class="file">n8n-workflows/knowledge-embeddings/zendesk-workflow.json</span></li>
+    <li class="internal"><strong>GraphQL Admin Queries</strong> — 8 resolver queries for ticket/user operations with FeatureGuard auth<span class="file">apps/api/src/modules/zendesk/admin/admin.resolver.ts</span></li>
+    <li class="internal"><strong>Knowledge Sync</strong> — Background workers sync Zendesk articles for chatbot document repository<span class="file">apps/workers/src/modules/sync-knowledge-source/</span></li>
+  </ul>
+</div>
+
+<!-- zendesk-widget -->
+<div class="repo-card">
+  <div class="repo-header">
+    <span class="repo-name">zendesk-widget</span>
+    <div class="repo-tags"><span class="tag tag-sdk">SDK</span><span class="tag tag-api">API</span></div>
+  </div>
+  <div class="repo-desc">Custom Zendesk agent sidebar app. Entire repo is Zendesk-specific — needs full rewrite for new CRM.</div>
+  <ul class="func-list">
+    <li class="sdk"><strong>ZAF SDK 2.0</strong> — ZAFClient.init(), client.get('ticket.requester.id'), client.invoke('resize'), client.request()<span class="file">assets/iframe.html, assets/js/controller.js</span></li>
+    <li class="api-call"><strong>20 Backend Endpoints</strong> — Business info, transactions, cards, holds, reserves, UBOs, lending, OTP, admin notes<span class="file">assets/js/controller.js (1,555 lines)</span></li>
+    <li class="config"><strong>Manifest</strong> — Zendesk app manifest (ticket_sidebar location, framework v2.0)<span class="file">manifest.json</span></li>
+  </ul>
+</div>
+
+<!-- onboarding-core -->
+<div class="repo-card">
+  <div class="repo-header">
+    <span class="repo-name">onboarding-core</span>
+    <div class="repo-tags"><span class="tag tag-api">API</span><span class="tag tag-db">DB</span></div>
+  </div>
+  <div class="repo-desc">Credit card lifecycle tags via async RabbitMQ workers.</div>
+  <ul class="func-list">
+    <li class="api-call"><strong>Tag Updates</strong> — PUT /api/v2/users/{id}/tags.json with exponential backoff + 429 rate limit handling<span class="file">infrastructure/zendDesk/src/zendesk.service.ts</span></li>
+    <li class="internal"><strong>CC Tags</strong> — credit_card_invitee (on invite), cc_apr (approved), cc_dnd (denied)<span class="file">apps/credit-card-api/src/modules/invitations/events/zendesk.event.ts</span></li>
+    <li class="internal"><strong>Async Worker</strong> — RabbitMQ consumer processes zendesk_add_tags_users queue<span class="file">apps/workers/src/consumers/zendesk/zendesk-add-tags-users.consumer.ts</span></li>
+    <li class="db"><strong>Database</strong> — zendesk_users entity (userId, businessId, zendeskId, meta JSONB)<span class="file">infrastructure/database/entities/zendesk-users.entity.ts</span></li>
+  </ul>
+</div>
+
+<!-- credit-card-service -->
+<div class="repo-card">
+  <div class="repo-header">
+    <span class="repo-name">credit-card-service</span>
+    <div class="repo-tags"><span class="tag tag-api">API</span><span class="tag tag-db">DB</span></div>
+  </div>
+  <div class="repo-desc">Creates and manages Zendesk tickets for credit card transaction disputes.</div>
+  <ul class="func-list">
+    <li class="api-call"><strong>Ticket CRUD</strong> — createTicket(), updateTicket(), updateTicketTags() with retry logic<span class="file">libs/zendesk/src/zendesk.service.ts</span></li>
+    <li class="db"><strong>Dispute Table</strong> — zendesk_ticket_id column in credit_card_transaction_disputes<span class="file">database/entities/credit-card-transaction-dispute.entity.ts</span></li>
+    <li class="db"><strong>User Mapping</strong> — zendesk_users entity<span class="file">database/entities/zendesk-user.entity.ts</span></li>
+  </ul>
+</div>
+
+<!-- card-management-service -->
+<div class="repo-card">
+  <div class="repo-header">
+    <span class="repo-name">card-management-service</span>
+    <div class="repo-tags"><span class="tag tag-api">API</span><span class="tag tag-db">DB</span></div>
+  </div>
+  <div class="repo-desc">Debit card dispute ticket management.</div>
+  <ul class="func-list">
+    <li class="api-call"><strong>Dispute Tickets</strong> — Creates Zendesk tickets for debit card transaction disputes with custom fields<span class="file">src/modules/card-transaction-dispute/card-transaction-dispute.service.ts</span></li>
+    <li class="internal"><strong>Admin Communication</strong> — Handles ticket comments for dispute resolution workflow<span class="file">src/modules/card-transaction-dispute/helpers/admin-ticket-communication.ts</span></li>
+    <li class="db"><strong>User Mapping</strong> — zendesk_users entity<span class="file">database/entities/zendesk-users.entity.ts</span></li>
+  </ul>
+</div>
+
+<!-- AMS -->
+<div class="repo-card">
+  <div class="repo-header">
+    <span class="repo-name">AMS (Account Management Service)</span>
+    <div class="repo-tags"><span class="tag tag-api">API</span><span class="tag tag-db">DB</span></div>
+  </div>
+  <div class="repo-desc">User tag management and Zendesk health monitoring.</div>
+  <ul class="func-list">
+    <li class="api-call"><strong>Tag Management</strong> — addTagToZendeskUser(), removeTagToZendeskUser(), updateTagsToZendesk()<span class="file">libs/zendesk/src/zendesk.service.ts</span></li>
+    <li class="api-call"><strong>Health Check</strong> — Monitors status.zendesk.com for active incidents (10 req/min limit)<span class="file">libs/zendesk/src/zendesk.service.ts</span></li>
+    <li class="db"><strong>User Mapping</strong> — zendesk_users entity<span class="file">database/entities/zendesk-user.entity.ts</span></li>
+  </ul>
+</div>
+
+<!-- incoming-webhooks -->
+<div class="repo-card">
+  <div class="repo-header">
+    <span class="repo-name">incoming-webhooks</span>
+    <div class="repo-tags"><span class="tag tag-internal">Logic</span><span class="tag tag-config">Config</span></div>
+  </div>
+  <div class="repo-desc">Receives and validates Zendesk outbound webhook events.</div>
+  <ul class="func-list">
+    <li class="internal"><strong>Webhook Handlers</strong> — handleNewZendeskTicket(), handleZendeskReplyToTicket(), handleZendeskNotificationCall(), handleTicketLifecycle()<span class="file">controllers/zendesk.js</span></li>
+    <li class="internal"><strong>HMAC Validation</strong> — Verifies x-zendesk-webhook-signature using SHA256<span class="file">controllers/zendesk.js</span></li>
+    <li class="internal"><strong>Event Routing</strong> — Queues to send-mail and send-push-notification services<span class="file">routes/index.js</span></li>
+    <li class="config"><strong>Signing Secret</strong> — Common/Zendesk/NewTicketSigningSecret in Parameter Store<span class="file">config/blueprint.json</span></li>
+  </ul>
+</div>
+
+<!-- novo-slack-jira-app -->
+<div class="repo-card">
+  <div class="repo-header">
+    <span class="repo-name">novo-slack-jira-app</span>
+    <div class="repo-tags"><span class="tag tag-api">API</span></div>
+  </div>
+  <div class="repo-desc">Converts Slack messages into Zendesk tickets with attachments.</div>
+  <ul class="func-list">
+    <li class="api-call"><strong>Ticket Creation</strong> — createZendeskTicket() with HTML body, priority, tags, group assignment, requester<span class="file">src/services/zendesk.service.ts</span></li>
+    <li class="api-call"><strong>File Upload</strong> — _uploadFile() to Zendesk for Slack attachments<span class="file">src/services/zendesk.service.ts</span></li>
+    <li class="api-call"><strong>Comments</strong> — _createZendeskComment() adds replies to existing tickets<span class="file">src/services/zendesk.service.ts</span></li>
+  </ul>
+</div>
+
+<!-- novo-invoicing-service -->
+<div class="repo-card">
+  <div class="repo-header">
+    <span class="repo-name">novo-invoicing-service</span>
+    <div class="repo-tags"><span class="tag tag-api">API</span><span class="tag tag-db">DB</span></div>
+  </div>
+  <div class="repo-desc">Creates Zendesk tickets for invoice payment disputes.</div>
+  <ul class="func-list">
+    <li class="api-call"><strong>Dispute Tickets</strong> — Ticket creation with custom fields, tags, priorities, collaborators<span class="file">libs/zendesk/src/zendesk.service.ts</span></li>
+    <li class="db"><strong>Dispute Table</strong> — zendesk_ticket_id column in invoice disputes table<span class="file">database/migrations/20250519...</span></li>
+  </ul>
+</div>
+
+<!-- Call Forwarding -->
+<div class="repo-card">
+  <div class="repo-header">
+    <span class="repo-name">Call Forwarding</span>
+    <div class="repo-tags"><span class="tag tag-api">API</span></div>
+  </div>
+  <div class="repo-desc">Creates Zendesk tickets for Apple Pay activation requests via IVR.</div>
+  <ul class="func-list">
+    <li class="api-call"><strong>Ticket Creation</strong> — zendesk.tickets.create() with subject, HTML body, tags (Apple_pay_connect), masked card data<span class="file">apple-pay/lib.js</span></li>
+  </ul>
+</div>
+
+<!-- Remaining low-impact repos -->
+<div class="repo-card">
+  <div class="repo-header">
+    <span class="repo-name">Other Affected Repos (Low Impact)</span>
+    <div class="repo-tags"><span class="tag tag-config">Config</span><span class="tag tag-db">DB</span></div>
+  </div>
+  <div class="repo-desc">Minor references — mostly config, DB models, or URL changes.</div>
+  <ul class="func-list">
+    <li class="db"><strong>authentication</strong> — zendesk_users model, tag management, token endpoint for widget</li>
+    <li class="db"><strong>Onboarding Admin API</strong> — zendesk_users table, getApplicationByZenDeskId() GraphQL query</li>
+    <li class="db"><strong>onboarding</strong> — zendesk_users table (same schema)</li>
+    <li class="db"><strong>debit-card-service</strong> — zendesk_users entity for lookups</li>
+    <li class="config"><strong>novo-webapps</strong> — Help center URLs, feature flags, GraphQL ticket queries</li>
+    <li class="config"><strong>novo-tools</strong> — Admin dashboard links to Zendesk tickets</li>
+    <li class="config"><strong>novo-mailer</strong> — Email templates for ticket events</li>
+    <li class="config"><strong>identity</strong> — Zendesk config in environment files</li>
+    <li class="config"><strong>Novo_Web_UI_automation</strong> — QA test objects for Zendesk pages</li>
+  </ul>
+</div>
+
+</div><!-- end repo-grid -->
+
+<!-- ===================================== -->
+<!-- SECTION 4: SHARED INFRASTRUCTURE      -->
+<!-- ===================================== -->
+<div class="section-title">
+  <div class="icon" style="background:var(--tag-config);">&#9881;</div>
+  Part 4 — Shared Infrastructure & Secrets
+</div>
+<div class="section-desc">AWS Parameter Store keys, database tables, and shared constants that span multiple repos.</div>
+
+<div class="split">
+  <div class="split-card">
+    <h3 style="color:var(--yellow)">AWS Parameter Store Keys</h3>
+    <ul class="replace-list">
+      <li><strong>Common/Zendesk/URL</strong> — https://novo.zendesk.com</li>
+      <li><strong>Common/Zendesk/Email</strong> — Service account email</li>
+      <li><strong>Common/Zendesk/Token</strong> — API token</li>
+      <li><strong>Common/Zendesk/APIVersion</strong> — v2</li>
+      <li><strong>Common/Zendesk/EncryptionToken</strong> — For CSAT survey tokens</li>
+      <li><strong>Common/Zendesk/NewTicketSigningSecret</strong> — Webhook HMAC key</li>
+      <li><strong>CallForwarding/Zendesk/*</strong> — Separate creds for IVR</li>
+      <li><strong>SlackJira/ZendeskUser</strong> — Slack-Jira bot creds</li>
+      <li><strong>SlackJira/ZendeskToken</strong> — Slack-Jira bot token</li>
+      <li><strong>ChatbotService/Zendesk/HelpCenter</strong> — Help Center URL</li>
+    </ul>
+  </div>
+  <div class="split-card">
+    <h3 style="color:var(--blue)">Database Tables (zendesk_users)</h3>
+    <ul class="update-list">
+      <li><strong>Admin API</strong> — zendesk_users (id, user_id, business_id, zendesk_id, meta JSONB)</li>
+      <li><strong>novo-mobile-api</strong> — zendesk_users (same schema)</li>
+      <li><strong>authentication</strong> — zendesk_users (same schema)</li>
+      <li><strong>onboarding-core</strong> — zendesk_users entity (TypeORM)</li>
+      <li><strong>Onboarding Admin API</strong> — zendesk_users (application_id FK)</li>
+      <li><strong>onboarding</strong> — zendesk_users (same as OB Admin)</li>
+      <li><strong>debit-card-service</strong> — zendesk_users entity</li>
+      <li><strong>AMS</strong> — zendesk_users entity</li>
+      <li><strong>card-management-service</strong> — zendesk_users entity</li>
+      <li><strong>credit-card-service</strong> — zendesk_ticket_id in disputes</li>
+      <li><strong>novo-invoicing-service</strong> — zendesk_ticket_id in disputes</li>
+      <li><strong>customer-voice-service</strong> — support_tickets (vendor='zendesk')</li>
+    </ul>
+  </div>
+</div>
+
+<!-- Tags used -->
+<div class="split">
+  <div class="split-card">
+    <h3 style="color:var(--accent2)">Zendesk User Tags in Use</h3>
+    <ul class="update-list">
+      <li><strong>OPENED_ACCOUNT</strong> — Applied on account opening (Admin API)</li>
+      <li><strong>CLOSED_ACCOUNT</strong> — Applied on account closure (Admin API)</li>
+      <li><strong>FROZEN_ACCOUNT</strong> — Applied on account freeze (Admin API)</li>
+      <li><strong>PAYROLL_ADMIN</strong> — Applied for payroll admin role (Admin API)</li>
+      <li><strong>credit_card_invitee</strong> — CC invitation sent (onboarding-core)</li>
+      <li><strong>cc_apr</strong> — CC application approved (onboarding-core)</li>
+      <li><strong>cc_dnd</strong> — CC application denied (onboarding-core)</li>
+      <li><strong>Apple_pay_connect</strong> — Apple Pay activation (Call Forwarding)</li>
+    </ul>
+  </div>
+  <div class="split-card">
+    <h3 style="color:var(--accent)">Feature Flags</h3>
+    <ul class="replace-list">
+      <li><strong>zendesk_live_chat</strong> — Controls live chat widget visibility for users</li>
+      <li><strong>web_zendesk_ticketing</strong> — Controls web ticketing feature access</li>
+      <li><strong>zendesk_chat_bot</strong> — Controls chatbot availability (web)</li>
+      <li><strong>zendesk_chat_bot_mobile</strong> — Controls chatbot availability (mobile)</li>
+    </ul>
+  </div>
+</div>
+
+<!-- Zendesk Custom Field IDs -->
+<div class="checklist">
+  <h3>Zendesk Custom Field IDs (Hardcoded)</h3>
+  <div class="check-item"><div class="check-box"></div><div><div class="check-text">360028633352 — System OS Version</div><div class="check-sub">Used in: novo-android, iOS — attached to tickets as device metadata</div></div></div>
+  <div class="check-item"><div class="check-box"></div><div><div class="check-text">360028633372 — Device Model Name</div><div class="check-sub">Used in: novo-android, iOS</div></div></div>
+  <div class="check-item"><div class="check-box"></div><div><div class="check-text">360027629872 — Application Version</div><div class="check-sub">Used in: novo-android, iOS</div></div></div>
+  <div class="check-item"><div class="check-box"></div><div><div class="check-text">Various dispute-specific field IDs</div><div class="check-sub">Used in: card-management-service, credit-card-service — for dispute categorization</div></div></div>
+</div>
+
+<!-- Help Center Section IDs -->
+<div class="checklist">
+  <h3>Help Center Section IDs (Hardcoded)</h3>
+  <div class="check-item"><div class="check-box"></div><div><div class="check-text">360003511092 — Express ACH Support</div><div class="check-sub">novo-android ZendeskSection enum</div></div></div>
+  <div class="check-item"><div class="check-box"></div><div><div class="check-text">9006845789972 — Dispute Transaction</div><div class="check-sub">novo-android FraudCenterScreen</div></div></div>
+  <div class="check-item"><div class="check-box"></div><div><div class="check-text">360043795611 — Lost/Stolen Card</div><div class="check-sub">novo-android FraudCenterScreen</div></div></div>
+  <div class="check-item"><div class="check-box"></div><div><div class="check-text">4406530151316 — Freeze Card</div><div class="check-sub">novo-android FraudCenterScreen</div></div></div>
+  <div class="check-item"><div class="check-box"></div><div><div class="check-text">360051985152 — Unauthorized Withdrawal</div><div class="check-sub">novo-android FraudCenterScreen</div></div></div>
+  <div class="check-item"><div class="check-box"></div><div><div class="check-text">360006491972 — QuickBooks Integration</div><div class="check-sub">novo-android ZendeskSection enum</div></div></div>
+  <div class="check-item"><div class="check-box"></div><div><div class="check-text">360004546052 — Xero Integration</div><div class="check-sub">novo-android ZendeskSection enum</div></div></div>
+  <div class="check-item"><div class="check-box"></div><div><div class="check-text">360004092711 — TransferWise</div><div class="check-sub">novo-android ZendeskSection enum</div></div></div>
+  <div class="check-item"><div class="check-box"></div><div><div class="check-text">10173804816788 — Funding Support</div><div class="check-sub">novo-android ZendeskSection enum</div></div></div>
+  <div class="check-item"><div class="check-box"></div><div><div class="check-text">20712344197652 — Debit Cards</div><div class="check-sub">debit-card-service metadata resolver</div></div></div>
+  <div class="check-item"><div class="check-box"></div><div><div class="check-text">360011757532 — Reserves</div><div class="check-sub">novo-webapps constants</div></div></div>
+  <div class="check-item"><div class="check-box"></div><div><div class="check-text">6177441326868 — ACH FAQ</div><div class="check-sub">novo-webapps constants</div></div></div>
+</div>
+
+<!-- ============================= -->
+<!-- SECTION 5: MIGRATION CHECKLIST -->
+<!-- ============================= -->
+<div class="section-title">
+  <div class="icon" style="background:var(--tag-sdk);">&#9745;</div>
+  Part 5 — Migration Checklist
+</div>
+<div class="section-desc">Capabilities the new CRM must support, derived from actual usage.</div>
+
+<div class="checklist">
+  <h3>New CRM Feature Requirements</h3>
+  <div class="check-item"><div class="check-box"></div><div><div class="check-text">Ticket Management REST API</div><div class="check-sub">Create, read, update tickets. Add comments (public/private). Manage tags, priorities, custom fields, collaborators. Incremental export with cursor pagination.</div></div></div>
+  <div class="check-item"><div class="check-box"></div><div><div class="check-text">User/Contact Management API</div><div class="check-sub">Create/update users with external IDs. Search by email/name. Tag management (add/remove). User-to-ticket association.</div></div></div>
+  <div class="check-item"><div class="check-box"></div><div><div class="check-text">File Attachment API</div><div class="check-sub">Upload attachments to tickets (documents, images). Download attachments. Support for dispute evidence files.</div></div></div>
+  <div class="check-item"><div class="check-box"></div><div><div class="check-text">Knowledge Base / Help Center API</div><div class="check-sub">Fetch articles, sections, categories programmatically. Hierarchical content traversal. Content used for chatbot RAG embeddings pipeline.</div></div></div>
+  <div class="check-item"><div class="check-box"></div><div><div class="check-text">Mobile SDK (iOS + Android)</div><div class="check-sub">Native in-app chat/messaging. Ticket list and detail views. Help center / FAQ browsing. Article display. Push notification support. JWT-based authentication.</div></div></div>
+  <div class="check-item"><div class="check-box"></div><div><div class="check-text">AI / Bot Capabilities</div><div class="check-sub">Article suggestion engine (like AnswerBot). Powers in-app self-service on mobile.</div></div></div>
+  <div class="check-item"><div class="check-box"></div><div><div class="check-text">Outbound Webhooks</div><div class="check-sub">Event triggers for: ticket created, ticket status changed, agent replied. HMAC signature verification for security.</div></div></div>
+  <div class="check-item"><div class="check-box"></div><div><div class="check-text">Agent App Framework / Sidebar Widget</div><div class="check-sub">Custom iframe/widget in agent view showing external data (Novo customer info, transactions, cards, etc.). Access to current ticket requester context.</div></div></div>
+  <div class="check-item"><div class="check-box"></div><div><div class="check-text">CSAT / Customer Satisfaction Surveys</div><div class="check-sub">Post-resolution satisfaction rating collection. Integration with email and push notification channels.</div></div></div>
+  <div class="check-item"><div class="check-box"></div><div><div class="check-text">Custom Ticket Fields</div><div class="check-sub">Device metadata fields (OS, model, app version). Dispute-specific categorization fields.</div></div></div>
+  <div class="check-item"><div class="check-box"></div><div><div class="check-text">Rate Limiting with Retry-After</div><div class="check-sub">API rate limits must be documented. Retry-After header support for graceful backoff.</div></div></div>
+  <div class="check-item"><div class="check-box"></div><div><div class="check-text">Status Page / Health API</div><div class="check-sub">Programmatic status monitoring (used in AMS for health checks).</div></div></div>
+  <div class="check-item"><div class="check-box"></div><div><div class="check-text">JWT Authentication for Messaging</div><div class="check-sub">Secure user identity for mobile messaging SDK via JWT tokens.</div></div></div>
+</div>
+
+<!-- Repos with NO Zendesk -->
+<div class="checklist">
+  <h3>Repos with No Zendesk References (No Changes Needed)</h3>
+  <div class="check-item"><div class="check-box" style="background:var(--accent2);border-color:var(--accent2)"></div><div><div class="check-text">Collections, Integrations, account-closure-flow, infrastructure-live, integration-tools-service, dev-scripts</div></div></div>
+</div>
+
+<div class="footer">
+  Novo Zendesk Migration Audit &mdash; Generated by Claude Code &mdash; March 20, 2026<br>
+  Scanned 30 repositories &bull; 819 files matched &bull; 18 repos with Zendesk dependencies
+</div>
+
+</div><!-- end container -->
+</body>
+</html>
